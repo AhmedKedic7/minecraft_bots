@@ -4,6 +4,16 @@ const mineflayer = require("mineflayer");
 const { pathfinder, Movements, goals } = require('mineflayer-pathfinder')
 const { GoalFollow, GoalNear } = goals
 
+const State = require('./enums/states.js')
+const {
+  isWood,
+  isNaturalWood,
+  findNearestTree
+} = require('./utils/treeDetector.js')
+
+const bed = (b) => b.name.endsWith('_bed');
+// const woodBlock = (b) => b.name.endsWith('_log') || b.name.endsWith('_wood');
+
 var settings = {
     username: "woodchopper",
     host: process.env.SERVER_NAME,
@@ -13,9 +23,9 @@ const bot = mineflayer.createBot(settings);
 
 bot.loadPlugin(pathfinder);
 
-let mode = 'idle'
+let mode = State.IDLE
 
-// const woodBlock = (b) => b.name.endsWith('_log') || b.name.endsWith('_wood');
+
 
 
 
@@ -24,20 +34,31 @@ bot.once('spawn', ()=> {
     bot.movements = new Movements(bot, mcData)
 })
 
+bot.on('physicsTick', async () => {
+    try{
+        await switchState()
+    } catch (e){
+        console.error(e);
+    }
+})
+//TODO: needs optimisation
 bot.on('time', async () =>  {
-    if (!bot.time.isNight) return;
+    if (bot.time.isDay) return;
     if (bot.isSleeping) return;
 
-    const bed = bot.findBlock({
-        matching: '_bed'
+    const nearBed = bot.findBlock({
+        matching: bed,
+        maxDistance:64
     })
+
+    // console.log(nearBed)
 
     if(!bed) {
         bot.chat('No bed found!')
     }
 
     try {
-        await bot.sleep(bed)
+        await bot.sleep(nearBed)
         bot.chat('Sleeping!')
     } catch {
         bot.chat('Cannot sleep!')
@@ -48,7 +69,7 @@ bot.on('chat', async (username, message)=> {
     if(username === bot.username) return;
 
     if(message === 'follow'){
-        mode = 'follow';
+        mode = State.FOLLOW;
         const player = bot.players[username]?.entity;
         if(!player) {
             bot.chat(`Cannot find ${username}!`)
@@ -59,13 +80,13 @@ bot.on('chat', async (username, message)=> {
     }
 
     if(message === 'stop'){
-        mode = 'idle';
+        mode = State.IDLE;
         bot.pathfinder.setGoal(null)
         bot.chat('Stopped')
     }
 
     if(message === 'chop'){
-        mode = 'chop';
+        mode = State.CHOP_TREE;
         bot.chat('Chopping trees!')
         chopLoop()
     }
@@ -73,10 +94,15 @@ bot.on('chat', async (username, message)=> {
     if(message === 'drop') {
         dropAll();
     }
+
+    if(message === 'findtree'){
+        const tree = findNearestTree(bot);
+        bot.chat(tree)
+    }
 })
 
 async function chopLoop(){
-    while(mode === 'chop'){
+    while(mode === State.CHOP_TREE){
         const block = bot.findBlock({
             matching: isWood,
             maxDistance: 32
@@ -88,7 +114,7 @@ async function chopLoop(){
             continue
         }
 
-        chopTree(block)
+        await chopTree(block)
         sleep(800)
     }
 }
@@ -96,7 +122,7 @@ async function chopLoop(){
 async function chopTree (block) {
     let current = block;
 
-    while( current && isWood(current)) {
+    while( current && isWood(current) && mode===State.CHOP_TREE) {
         await bot.pathfinder.goto(
             new GoalNear(current.position.x, current.position.y, current.position.z, 1)
         )
@@ -109,7 +135,6 @@ async function chopTree (block) {
         current = bot.blockAt(current.position.offset(0, 1, 0))
     }
     bot.chat('Tree chopped succesfully')
-    chopTree(block)
 }
 
 //old method for chopping the tree
@@ -155,10 +180,22 @@ async function dropAll() {
 } 
 
 
-function isWood(block){
-    return block && (block.name.endsWith('_log') || block.name.endsWith('_wood'))
-}
-
 function sleep(ms){
     return new Promise(resolve => setTimeout(resolve,ms))
+}
+
+async function switchState() {
+    switch (mode) {
+        case State.IDLE:
+            return
+
+        case State.CHOP_TREE:
+            return chopTree()
+
+        case State.EAT:
+            return eat()
+
+        case State.SLEEP:
+            return sleep()
+    }
 }
