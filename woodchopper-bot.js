@@ -66,18 +66,32 @@ bot.on('chat', async (username, message)=> {
 
     if(message === 'chop'){
         mode = 'chop';
-        while(true){
-            const block = bot.findBlock({
-            matching: isWood,
-            maxDistance: 32
-        })
-        chopTree(block)}
+        bot.chat('Chopping trees!')
+        chopLoop()
     }
 
     if(message === 'drop') {
         dropAll();
     }
 })
+
+async function chopLoop(){
+    while(mode === 'chop'){
+        const block = bot.findBlock({
+            matching: isWood,
+            maxDistance: 32
+        })
+
+        if(!block){
+            bot.chat('Cannot find a tree nearby!')
+            sleep(3000)
+            continue
+        }
+
+        chopTree(block)
+        sleep(800)
+    }
+}
 
 async function chopTree (block) {
     let current = block;
@@ -143,4 +157,8 @@ async function dropAll() {
 
 function isWood(block){
     return block && (block.name.endsWith('_log') || block.name.endsWith('_wood'))
+}
+
+function sleep(ms){
+    return new Promise(resolve => setTimeout(resolve,ms))
 }
